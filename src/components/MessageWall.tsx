@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { MessageSquareHeart, Send, Heart } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { MessageSquareHeart, Heart, RefreshCw, ExternalLink, Github } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -7,6 +7,14 @@ interface Message {
   content: string;
   timestamp: number;
   color: string;
+  avatarUrl?: string;
+}
+
+interface GitHubComment {
+  id: number;
+  user: { login: string; avatar_url: string } | null;
+  body: string;
+  created_at: string;
 }
 
 const NOTE_COLORS = [
@@ -18,44 +26,48 @@ const NOTE_COLORS = [
   'bg-orange-100 border-orange-300',
 ];
 
-const INITIAL_MESSAGES: Message[] = [
+const GITHUB_OWNER = 'gongxi-jpj';
+const GITHUB_REPO = 'Human.Machine';
+const GITHUB_ISSUE_NUMBER = 1;
+
+const FALLBACK_MESSAGES: Message[] = [
   {
-    id: '1',
+    id: 'fallback-1',
     name: '张老师',
     content: '恭喜同学们顺利毕业！愿你们前程似锦，未来可期！',
     timestamp: Date.now() - 86400000 * 3,
     color: NOTE_COLORS[0],
   },
   {
-    id: '2',
+    id: 'fallback-2',
     name: '小明',
     content: '四年时光转瞬即逝，感谢遇见的每一个人，毕业快乐！',
     timestamp: Date.now() - 86400000 * 2,
     color: NOTE_COLORS[1],
   },
   {
-    id: '3',
+    id: 'fallback-3',
     name: '李妈妈',
     content: '宝贝女儿，你是最棒的！爸爸妈妈为你骄傲！',
     timestamp: Date.now() - 86400000,
     color: NOTE_COLORS[2],
   },
   {
-    id: '4',
+    id: 'fallback-4',
     name: '室友阿强',
     content: '四年同寝，一生兄弟！以后常联系，苟富贵勿相忘！',
     timestamp: Date.now() - 43200000,
     color: NOTE_COLORS[3],
   },
   {
-    id: '5',
+    id: 'fallback-5',
     name: '王教授',
     content: '做学问要脚踏实地，做人要光明磊落。同学们，加油！',
     timestamp: Date.now() - 21600000,
     color: NOTE_COLORS[4],
   },
   {
-    id: '6',
+    id: 'fallback-6',
     name: '学姐小雨',
     content: '欢迎加入校友大家庭！毕业不是终点，而是新的起点~',
     timestamp: Date.now() - 7200000,
@@ -63,28 +75,116 @@ const INITIAL_MESSAGES: Message[] = [
   },
 ];
 
+function parseCommentBody(body: string): { name: string; content: string } {
+  const lines = body.trim().split('\n');
+  const firstLine = lines[0] || '';
+  const nameMatch = firstLine.match(/^【(.+?)】/);
+
+  if (nameMatch) {
+    const name = nameMatch[1];
+    const content = lines.slice(1).join('\n').trim() || firstLine.replace(/^【.+?】/, '').trim();
+    return { name, content: content || name };
+  }
+
+  const dashMatch = firstLine.match(/^(.+?)\s*[-—]\s*(.+)$/);
+  if (dashMatch) {
+    return { name: dashMatch[1].trim(), content: dashMatch[2].trim() };
+  }
+
+  return { name: '', content: body.trim() };
+}
+
+function hashStringToIndex(str: string, max: number): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash) % max;
+}
+
 export default function MessageWall() {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [name, setName] = useState('');
-  const [content, setContent] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [newMessageId, setNewMessageId] = useState<string | null>(null);
   const [likedMessages, setLikedMessages] = useState<Set<string>>(new Set());
   const ref = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
 
+  const fetchMessages = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+
+    try {
+      const response = await fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/issues/${GITHUB_ISSUE_NUMBER}/comments?per_page=100&sort=created&direction=desc`,
+        {
+          headers: { Accept: 'application/vnd.github.v3+json' },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`GitHub API 请求失败: ${response.status}`);
+      }
+
+      const comments: GitHubComment[] = await response.json();
+
+      const parsedMessages: Message[] = comments
+        .filter((comment) => comment.body?.trim())
+        .map((comment, index) => {
+          const { name, content } = parseCommentBody(comment.body);
+          const displayName = name || comment.user?.login || '匿名校友';
+          const colorIndex = hashStringToIndex(comment.id.toString(), NOTE_COLORS.length);
+
+          return {
+            id: `gh-${comment.id}`,
+            name: displayName,
+            content,
+            timestamp: new Date(comment.created_at).getTime(),
+            color: NOTE_COLORS[colorIndex],
+            avatarUrl: comment.user?.avatar_url,
+          };
+        });
+
+      if (parsedMessages.length > 0) {
+        setMessages(parsedMessages);
+        localStorage.setItem('graduation-messages-cache', JSON.stringify(parsedMessages));
+      } else {
+        setMessages(FALLBACK_MESSAGES);
+      }
+    } catch (error) {
+      console.error('加载祝福失败:', error);
+      const cached = localStorage.getItem('graduation-messages-cache');
+      if (cached) {
+        try {
+          setMessages(JSON.parse(cached));
+        } catch {
+          setMessages(FALLBACK_MESSAGES);
+        }
+      } else {
+        setMessages(FALLBACK_MESSAGES);
+      }
+      setLoadError(error instanceof Error ? error.message : '加载失败');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    const saved = localStorage.getItem('graduation-messages');
-    if (saved) {
+    const cached = localStorage.getItem('graduation-messages-cache');
+    if (cached) {
       try {
-        setMessages(JSON.parse(saved));
+        setMessages(JSON.parse(cached));
       } catch {
-        setMessages(INITIAL_MESSAGES);
+        setMessages(FALLBACK_MESSAGES);
       }
     } else {
-      setMessages(INITIAL_MESSAGES);
-      localStorage.setItem('graduation-messages', JSON.stringify(INITIAL_MESSAGES));
+      setMessages(FALLBACK_MESSAGES);
     }
+
+    fetchMessages();
 
     const savedLikes = localStorage.getItem('graduation-likes');
     if (savedLikes) {
@@ -94,7 +194,7 @@ export default function MessageWall() {
         // ignore
       }
     }
-  }, []);
+  }, [fetchMessages]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -112,33 +212,6 @@ export default function MessageWall() {
 
     return () => observer.disconnect();
   }, []);
-
-  const handleSubmit = async () => {
-    if (!name.trim() || !content.trim() || isSubmitting) return;
-
-    setIsSubmitting(true);
-
-    await new Promise((resolve) => setTimeout(resolve, 800));
-
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      name: name.trim(),
-      content: content.trim(),
-      timestamp: Date.now(),
-      color: NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)],
-    };
-
-    const updatedMessages = [newMessage, ...messages];
-    setMessages(updatedMessages);
-    setNewMessageId(newMessage.id);
-    localStorage.setItem('graduation-messages', JSON.stringify(updatedMessages));
-
-    setName('');
-    setContent('');
-    setIsSubmitting(false);
-
-    setTimeout(() => setNewMessageId(null), 1000);
-  };
 
   const toggleLike = (id: string) => {
     const newLiked = new Set(likedMessages);
@@ -183,48 +256,43 @@ export default function MessageWall() {
           </p>
         </div>
 
-        <div className="bg-paper-texture rounded-2xl p-6 md:p-8 border-2 border-grad-gold/30 shadow-xl mb-12">
-          <h3 className="font-serif-cn text-xl text-grad-brown mb-4">发表祝福</h3>
-          <div className="space-y-4">
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="你的名字"
-              className="w-full px-4 py-3 bg-white/70 border-2 border-grad-gold/30 rounded-xl font-sans-cn text-grad-brown placeholder-grad-brown/40 focus:outline-none focus:border-grad-gold focus:ring-4 focus:ring-grad-gold/20 transition-all"
-              maxLength={20}
-            />
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="写下你想说的话..."
-              rows={3}
-              className="w-full px-4 py-3 bg-white/70 border-2 border-grad-gold/30 rounded-xl font-sans-cn text-grad-brown placeholder-grad-brown/40 focus:outline-none focus:border-grad-gold focus:ring-4 focus:ring-grad-gold/20 transition-all resize-none"
-              maxLength={200}
-            />
-            <div className="flex items-center justify-between">
-              <span className="text-grad-brown/40 text-sm">
-                {content.length}/200
-              </span>
+        <div className="bg-paper-texture rounded-2xl p-6 md:p-8 border-2 border-grad-gold/30 shadow-xl mb-8">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h3 className="font-serif-cn text-xl text-grad-brown mb-2">写下你的祝福</h3>
+              <p className="font-sans-cn text-grad-brown/60 text-sm">
+                在 GitHub Issue 中发表评论，祝福将展示在这里（评论首行格式：【你的名字】祝福内容）
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
               <button
-                onClick={handleSubmit}
-                disabled={!name.trim() || !content.trim() || isSubmitting}
-                className="relative px-8 py-3 bg-gradient-to-r from-grad-gold to-grad-gold-light text-grad-red font-serif-cn font-medium rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg hover:shadow-grad-gold/30 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none"
+                onClick={fetchMessages}
+                disabled={isLoading}
+                className="flex items-center gap-2 px-4 py-2.5 border-2 border-grad-gold/30 rounded-xl font-sans-cn text-grad-brown hover:bg-grad-gold/10 transition-all disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                刷新
+              </button>
+              <a
+                href={`https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/issues/${GITHUB_ISSUE_NUMBER}#new_comment_field`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="relative px-6 py-2.5 bg-gradient-to-r from-grad-gold to-grad-gold-light text-grad-red font-serif-cn font-medium rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg hover:shadow-grad-gold/30 hover:-translate-y-0.5"
               >
                 <span className="relative z-10 flex items-center gap-2">
-                  {isSubmitting ? (
-                    '发送中...'
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      发送祝福
-                    </>
-                  )}
+                  <Github className="w-4 h-4" />
+                  去写祝福
+                  <ExternalLink className="w-3.5 h-3.5" />
                 </span>
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full hover:translate-x-full transition-transform duration-1000" />
-              </button>
+              </a>
             </div>
           </div>
+          {loadError && (
+            <p className="mt-4 text-sm text-red-500 font-sans-cn">
+              加载失败，当前显示缓存数据：{loadError}
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">

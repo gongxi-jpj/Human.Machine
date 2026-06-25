@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { MessageSquareHeart, Heart, RefreshCw, ExternalLink, Github } from 'lucide-react';
+import { MessageSquareHeart, Heart, RefreshCw, ExternalLink, Github, Copy, Check, Send } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -110,6 +110,10 @@ export default function MessageWall() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [newMessageId, setNewMessageId] = useState<string | null>(null);
   const [likedMessages, setLikedMessages] = useState<Set<string>>(new Set());
+  const [name, setName] = useState('');
+  const [content, setContent] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
 
@@ -224,6 +228,36 @@ export default function MessageWall() {
     localStorage.setItem('graduation-likes', JSON.stringify([...newLiked]));
   };
 
+  const generateCommentBody = () => {
+    return `【${name.trim()}】\n${content.trim()}`;
+  };
+
+  const handleGenerateAndCopy = async () => {
+    if (!name.trim() || !content.trim()) return;
+
+    const commentText = generateCommentBody();
+    try {
+      await navigator.clipboard.writeText(commentText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = commentText;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!name.trim() || !content.trim()) return;
+    await handleGenerateAndCopy();
+    setShowGuide(true);
+  };
+
   const formatTime = (timestamp: number) => {
     const diff = Date.now() - timestamp;
     const minutes = Math.floor(diff / 60000);
@@ -257,40 +291,138 @@ export default function MessageWall() {
         </div>
 
         <div className="bg-paper-texture rounded-2xl p-6 md:p-8 border-2 border-grad-gold/30 shadow-xl mb-8">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
             <div>
-              <h3 className="font-serif-cn text-xl text-grad-brown mb-2">写下你的祝福</h3>
+              <h3 className="font-serif-cn text-xl text-grad-brown mb-1">写下你的祝福</h3>
               <p className="font-sans-cn text-grad-brown/60 text-sm">
-                在 GitHub Issue 中发表评论，祝福将展示在这里（评论首行格式：【你的名字】祝福内容）
+                填写下方表单，一键生成祝福内容并发布到 GitHub
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <button
+              onClick={fetchMessages}
+              disabled={isLoading}
+              className="flex items-center gap-2 px-4 py-2.5 border-2 border-grad-gold/30 rounded-xl font-sans-cn text-grad-brown hover:bg-grad-gold/10 transition-all disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+              刷新祝福
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="md:col-span-1">
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="你的名字"
+                  className="w-full px-4 py-3 bg-white/70 border-2 border-grad-gold/30 rounded-xl font-sans-cn text-grad-brown placeholder-grad-brown/40 focus:outline-none focus:border-grad-gold focus:ring-4 focus:ring-grad-gold/20 transition-all"
+                  maxLength={20}
+                />
+              </div>
+              <div className="md:col-span-3">
+                <textarea
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder="写下你想说的话..."
+                  rows={2}
+                  className="w-full px-4 py-3 bg-white/70 border-2 border-grad-gold/30 rounded-xl font-sans-cn text-grad-brown placeholder-grad-brown/40 focus:outline-none focus:border-grad-gold focus:ring-4 focus:ring-grad-gold/20 transition-all resize-none"
+                  maxLength={200}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-grad-brown/40 text-sm">
+                {content.length}/200
+              </span>
               <button
-                onClick={fetchMessages}
-                disabled={isLoading}
-                className="flex items-center gap-2 px-4 py-2.5 border-2 border-grad-gold/30 rounded-xl font-sans-cn text-grad-brown hover:bg-grad-gold/10 transition-all disabled:opacity-50"
-              >
-                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                刷新
-              </button>
-              <a
-                href={`https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/issues/${GITHUB_ISSUE_NUMBER}#new_comment_field`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="relative px-6 py-2.5 bg-gradient-to-r from-grad-gold to-grad-gold-light text-grad-red font-serif-cn font-medium rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg hover:shadow-grad-gold/30 hover:-translate-y-0.5"
+                onClick={handleSubmit}
+                disabled={!name.trim() || !content.trim()}
+                className="relative px-8 py-3 bg-gradient-to-r from-grad-gold to-grad-gold-light text-grad-red font-serif-cn font-medium rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg hover:shadow-grad-gold/30 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none"
               >
                 <span className="relative z-10 flex items-center gap-2">
-                  <Github className="w-4 h-4" />
-                  去写祝福
-                  <ExternalLink className="w-3.5 h-3.5" />
+                  <Send className="w-4 h-4" />
+                  生成祝福并发布
                 </span>
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full hover:translate-x-full transition-transform duration-1000" />
-              </a>
+              </button>
             </div>
           </div>
+
+          {showGuide && (
+            <div className="mt-6 p-5 bg-white/60 rounded-xl border-2 border-grad-gold/40">
+              <h4 className="font-serif-cn text-lg text-grad-brown mb-4 flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-grad-gold text-grad-red flex items-center justify-center text-sm font-bold">1</span>
+                发布步骤
+              </h4>
+              <div className="space-y-4">
+                <div className="flex items-start gap-3">
+                  <span className="w-6 h-6 rounded-full bg-grad-gold/20 text-grad-brown flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">
+                    1
+                  </span>
+                  <div>
+                    <p className="font-sans-cn text-grad-brown font-medium">祝福内容已复制到剪贴板</p>
+                    <p className="font-sans-cn text-grad-brown/60 text-sm mt-1">
+                      格式：<code className="bg-white/80 px-2 py-0.5 rounded text-xs">【{name || '你的名字'}】祝福内容</code>
+                    </p>
+                  </div>
+                  {copied && (
+                    <span className="flex items-center gap-1 text-green-600 text-sm font-sans-cn">
+                      <Check className="w-4 h-4" /> 已复制
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="w-6 h-6 rounded-full bg-grad-gold/20 text-grad-brown flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">
+                    2
+                  </span>
+                  <div className="flex-1">
+                    <p className="font-sans-cn text-grad-brown font-medium mb-2">
+                      点击下方按钮跳转到 GitHub，粘贴并发布评论
+                    </p>
+                    <a
+                      href={`https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/issues/${GITHUB_ISSUE_NUMBER}#new_comment_field`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-800 text-white font-sans-cn rounded-lg hover:bg-gray-700 transition-colors"
+                    >
+                      <Github className="w-4 h-4" />
+                      前往 GitHub 发布
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="w-6 h-6 rounded-full bg-grad-gold/20 text-grad-brown flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">
+                    3
+                  </span>
+                  <div>
+                    <p className="font-sans-cn text-grad-brown font-medium">
+                      发布后点击"刷新祝福"按钮即可看到你的祝福
+                    </p>
+                    <button
+                      onClick={async () => {
+                        await fetchMessages();
+                      }}
+                      className="mt-2 inline-flex items-center gap-2 px-4 py-2 border-2 border-grad-gold/50 rounded-lg font-sans-cn text-grad-brown hover:bg-grad-gold/10 transition-all"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                      我已发布，刷新看看
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 pt-4 border-t border-grad-gold/20">
+                <p className="font-sans-cn text-grad-brown/50 text-xs">
+                  💡 提示：需要 GitHub 账号才能发布评论。如果没有账号，可以让有账号的朋友帮忙发布。
+                </p>
+              </div>
+            </div>
+          )}
+
           {loadError && (
             <p className="mt-4 text-sm text-red-500 font-sans-cn">
-              加载失败，当前显示缓存数据：{loadError}
+              加载失败，当前显示缓存/示例数据：{loadError}
             </p>
           )}
         </div>

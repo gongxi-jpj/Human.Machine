@@ -1,14 +1,16 @@
 {
-  "name": "workspace",
+  "name": "graduation-invitation",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "homepage": "https://gongxi-jpj.github.io/Human.Machine/",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "check": "tsc -b --noEmit"
+    "check": "tsc -b --noEmit",
+    "deploy": "pnpm run build && gh-pages -d dist"
   },
   "dependencies": {
     "clsx": "^2.1.1",

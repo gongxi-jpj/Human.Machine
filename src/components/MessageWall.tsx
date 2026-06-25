@@ -1,67 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { MessageSquareHeart, Send, Heart } from 'lucide-react';
-
-interface Message {
-  id: string;
-  name: string;
-  content: string;
-  timestamp: number;
-  color: string;
-}
-
-const NOTE_COLORS = [
-  'bg-yellow-100 border-yellow-300',
-  'bg-pink-100 border-pink-300',
-  'bg-blue-100 border-blue-300',
-  'bg-green-100 border-green-300',
-  'bg-purple-100 border-purple-300',
-  'bg-orange-100 border-orange-300',
-];
-
-const INITIAL_MESSAGES: Message[] = [
-  {
-    id: '1',
-    name: '张老师',
-    content: '恭喜同学们顺利毕业！愿你们前程似锦，未来可期！',
-    timestamp: Date.now() - 86400000 * 3,
-    color: NOTE_COLORS[0],
-  },
-  {
-    id: '2',
-    name: '小明',
-    content: '四年时光转瞬即逝，感谢遇见的每一个人，毕业快乐！',
-    timestamp: Date.now() - 86400000 * 2,
-    color: NOTE_COLORS[1],
-  },
-  {
-    id: '3',
-    name: '李妈妈',
-    content: '宝贝女儿，你是最棒的！爸爸妈妈为你骄傲！',
-    timestamp: Date.now() - 86400000,
-    color: NOTE_COLORS[2],
-  },
-  {
-    id: '4',
-    name: '室友阿强',
-    content: '四年同寝，一生兄弟！以后常联系，苟富贵勿相忘！',
-    timestamp: Date.now() - 43200000,
-    color: NOTE_COLORS[3],
-  },
-  {
-    id: '5',
-    name: '王教授',
-    content: '做学问要脚踏实地，做人要光明磊落。同学们，加油！',
-    timestamp: Date.now() - 21600000,
-    color: NOTE_COLORS[4],
-  },
-  {
-    id: '6',
-    name: '学姐小雨',
-    content: '欢迎加入校友大家庭！毕业不是终点，而是新的起点~',
-    timestamp: Date.now() - 7200000,
-    color: NOTE_COLORS[5],
-  },
-];
+import {
+  type Message,
+  addMessage,
+  subscribeToMessages,
+  getRandomColor,
+} from '../lib/messageService';
 
 export default function MessageWall() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -74,18 +18,13 @@ export default function MessageWall() {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem('graduation-messages');
-    if (saved) {
-      try {
-        setMessages(JSON.parse(saved));
-      } catch {
-        setMessages(INITIAL_MESSAGES);
-      }
-    } else {
-      setMessages(INITIAL_MESSAGES);
-      localStorage.setItem('graduation-messages', JSON.stringify(INITIAL_MESSAGES));
-    }
+    const unsubscribe = subscribeToMessages((msgs) => {
+      setMessages(msgs);
+    });
+    return unsubscribe;
+  }, []);
 
+  useEffect(() => {
     const savedLikes = localStorage.getItem('graduation-likes');
     if (savedLikes) {
       try {
@@ -118,26 +57,24 @@ export default function MessageWall() {
 
     setIsSubmitting(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 800));
-
-    const newMessage: Message = {
-      id: Date.now().toString(),
+    const newMessage = {
       name: name.trim(),
       content: content.trim(),
       timestamp: Date.now(),
-      color: NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)],
+      color: getRandomColor(),
     };
 
-    const updatedMessages = [newMessage, ...messages];
-    setMessages(updatedMessages);
-    setNewMessageId(newMessage.id);
-    localStorage.setItem('graduation-messages', JSON.stringify(updatedMessages));
-
-    setName('');
-    setContent('');
-    setIsSubmitting(false);
-
-    setTimeout(() => setNewMessageId(null), 1000);
+    try {
+      const id = await addMessage(newMessage);
+      setNewMessageId(id);
+      setName('');
+      setContent('');
+      setTimeout(() => setNewMessageId(null), 1000);
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const toggleLike = (id: string) => {
